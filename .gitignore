@@ -1,3 +1,4 @@
 node_modules
 dist/
+scripts/bin/
 src/dashboard/react-dist/

@@ -54,8 +54,26 @@ const areDeepEqual = (left, right) => {
     return false;
 };
 
-const resolveSettingsDir = (settingsDir) =>
-    settingsDir || process.env.FAMILIAR_SETTINGS_DIR || path.join(os.homedir(), SETTINGS_DIR_NAME);
+const resolveWindowsSettingsDir = () => {
+    const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appDataRoot, 'Familiar');
+};
+
+const resolveWindowsDefaultContextFolderPath = () =>
+    process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+
+const resolveSettingsDir = (settingsDir) => {
+    if (settingsDir) {
+        return settingsDir;
+    }
+    if (process.env.FAMILIAR_SETTINGS_DIR) {
+        return process.env.FAMILIAR_SETTINGS_DIR;
+    }
+    if (process.platform === 'win32') {
+        return resolveWindowsSettingsDir();
+    }
+    return path.join(os.homedir(), SETTINGS_DIR_NAME);
+};
 
 const resolveSettingsPath = (options = {}) => path.join(resolveSettingsDir(options.settingsDir), SETTINGS_FILE_NAME);
 
@@ -208,7 +226,8 @@ const validateContextFolderPath = (contextFolderPath) =>
 // ~/.familiar/ settings dir, easy to find in Finder, no decision required
 // from the user. Advanced users can override by picking a different
 // folder via the wizard.
-const resolveDefaultContextFolderPath = () => os.homedir();
+const resolveDefaultContextFolderPath = () =>
+    process.platform === 'win32' ? resolveWindowsDefaultContextFolderPath() : os.homedir();
 
 module.exports = {
     loadSettings,
@@ -218,4 +237,5 @@ module.exports = {
     resolveSettingsDir,
     resolveSettingsPath,
     resolveDefaultContextFolderPath,
+    resolveWindowsDefaultContextFolderPath,
 };

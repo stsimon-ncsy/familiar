@@ -116,6 +116,7 @@ function createRecorder(options = {}) {
     setInterval,
     clearInterval
   };
+  const hasInjectedActiveWindowDetector = typeof options.createActiveWindowDetectorImpl === 'function';
   const createActiveWindowDetectorImpl = options.createActiveWindowDetectorImpl || createActiveWindowDetector;
   const hasE2EIntervalOverride =
     process.env.FAMILIAR_E2E === '1' &&
@@ -137,6 +138,7 @@ function createRecorder(options = {}) {
   let startInProgress = null;
   let stopInProgress = null;
   let sourceDetails = null;
+  let rendererCaptureSourceDetails = null;
   let queueStore = null;
   let captureLoopIntervalMs = null;
   const activeWindowDetector = createActiveWindowDetectorImpl({ logger });
@@ -217,6 +219,7 @@ function createRecorder(options = {}) {
       captureWindow = null;
       windowReadyPromise = null;
       rendererReady = false;
+      rendererCaptureSourceDetails = null;
       rejectPendingRequests(new Error('Recording renderer reset.'));
     }
   }
@@ -299,9 +302,11 @@ function createRecorder(options = {}) {
 
   async function tryStopRendererCapture({ timeoutMs } = {}) {
     if (!captureWindow) {
+      rendererCaptureSourceDetails = null;
       return { ok: true, alreadyStopped: true, reason: 'no-window' };
     }
     if (typeof captureWindow.isDestroyed === 'function' && captureWindow.isDestroyed()) {
+      rendererCaptureSourceDetails = null;
       return { ok: true, alreadyStopped: true, reason: 'window-destroyed' };
     }
 
@@ -313,9 +318,11 @@ function createRecorder(options = {}) {
         timeoutMs: timeoutMs || STOP_TIMEOUT_MS,
         expectedStatuses: ['stopped']
       });
+      rendererCaptureSourceDetails = null;
       return { ok: true, stopped: true };
     } catch (error) {
       if (typeof error?.message === 'string' && error.message.includes('No active capture.')) {
+        rendererCaptureSourceDetails = null;
         return { ok: true, alreadyStopped: true };
       }
       return { ok: false, error };
@@ -646,11 +653,25 @@ function createRecorder(options = {}) {
       timeoutMs: START_TIMEOUT_MS,
       expectedStatuses: ['started']
     });
+    rendererCaptureSourceDetails = nextSourceDetails;
     logger.log('Recording capture source started', {
       reason,
       displayId: nextSourceDetails.sourceDisplay.id,
       sourceId: nextSourceDetails.sourceId
     });
+  }
+
+  async function ensureRendererCaptureStarted({ nextSourceDetails, reason } = {}) {
+    if (!nextSourceDetails) {
+      throw new Error('Capture source details are required to start stills capture.');
+    }
+    if (isSameCaptureSource({
+      currentSource: rendererCaptureSourceDetails,
+      nextSource: nextSourceDetails
+    })) {
+      return;
+    }
+    await startRendererCapture({ nextSourceDetails, reason });
   }
 
   async function ensureCaptureSource(reason) {
@@ -712,6 +733,11 @@ function createRecorder(options = {}) {
     captureLoopIntervalMs = null;
   }
 
+  function shouldContinueWithoutWindowMetadata({ blacklistedApps } = {}) {
+    const hasBlacklistedApps = Array.isArray(blacklistedApps) && blacklistedApps.length > 0;
+    return activeWindowDetector?.metadataFailureIsNonFatal === true && !hasBlacklistedApps;
+  }
+
   async function captureNext() {
     if (!sessionStore) {
       return;
@@ -738,17 +764,35 @@ function createRecorder(options = {}) {
       };
       let beforeSnapshot = null;
       let afterSnapshot = null;
-      const shouldDetectVisibleWindows = !IS_E2E_FAKE_CAPTURE || blacklistedApps.length > 0;
+      const shouldDetectVisibleWindows =
+        (
+          (
+            process.platform === 'darwin' ||
+            hasInjectedActiveWindowDetector ||
+            activeWindowDetector?.supportsWindowMetadata === true
+          ) &&
+          !IS_E2E_FAKE_CAPTURE
+        ) ||
+        blacklistedApps.length > 0;
 
       if (shouldDetectVisibleWindows) {
         try {
           beforeSnapshot = await detectWindowSnapshot({ activeWindowDetector });
         } catch (error) {
-          logger.warn('Skipping still capture because visible window detection failed before capture', {
+          const canContinue = shouldContinueWithoutWindowMetadata({ blacklistedApps });
+          logger.warn(
+            canContinue
+              ? 'Continuing still capture without window metadata because visible window detection failed before capture'
+              : 'Skipping still capture because visible window detection failed before capture',
+            {
             error: error?.message || String(error),
             sessionId: sessionStore?.sessionId || null
-          });
-          return;
+            }
+          );
+          if (!canContinue) {
+            return;
+          }
+          beforeSnapshot = null;
         }
       }
 
@@ -772,6 +816,10 @@ function createRecorder(options = {}) {
       if (!IS_E2E_FAKE_CAPTURE) {
         const requestId = randomUUID();
         const activeSourceDetails = await ensureCaptureSource('capture-tick');
+        await ensureRendererCaptureStarted({
+          nextSourceDetails: activeSourceDetails,
+          reason: 'capture-tick'
+        });
         const window = await ensureWindowReady();
         window.webContents.send('screen-stills:capture', {
           requestId,
@@ -796,11 +844,20 @@ function createRecorder(options = {}) {
           try {
             afterSnapshot = await detectWindowSnapshot({ activeWindowDetector });
           } catch (error) {
-            logger.warn('Skipping still capture because visible window detection failed after capture', {
+            const canContinue = shouldContinueWithoutWindowMetadata({ blacklistedApps });
+            logger.warn(
+              canContinue
+                ? 'Continuing still capture without window metadata because visible window detection failed after capture'
+                : 'Skipping still capture because visible window detection failed after capture',
+              {
               error: error?.message || String(error),
               sessionId: sessionStore?.sessionId || null
-            });
-            return;
+              }
+            );
+            if (!canContinue) {
+              return;
+            }
+            afterSnapshot = null;
           }
         }
         if (beforeSnapshot && afterSnapshot) {
@@ -817,11 +874,20 @@ function createRecorder(options = {}) {
           try {
             afterSnapshot = await detectWindowSnapshot({ activeWindowDetector });
           } catch (error) {
-            logger.warn('Skipping fake still capture because visible window detection failed after capture', {
+            const canContinue = shouldContinueWithoutWindowMetadata({ blacklistedApps });
+            logger.warn(
+              canContinue
+                ? 'Continuing fake still capture without window metadata because visible window detection failed after capture'
+                : 'Skipping fake still capture because visible window detection failed after capture',
+              {
               error: error?.message || String(error),
               sessionId: sessionStore?.sessionId || null
-            });
-            return;
+              }
+            );
+            if (!canContinue) {
+              return;
+            }
+            afterSnapshot = null;
           }
         }
         if (beforeSnapshot && afterSnapshot) {
@@ -896,6 +962,9 @@ function createRecorder(options = {}) {
       async function startOnce() {
         lowPowerModeMonitor.start();
 
+        const initialCapturePrivacy = getCapturePrivacySettings();
+        const deferInitialCaptureStartup =
+          !IS_E2E_FAKE_CAPTURE && initialCapturePrivacy.blacklistedApps.length > 0;
         const initialSourceDetails = IS_E2E_FAKE_CAPTURE
           ? {
               sourceId: 'e2e-fake-source',
@@ -909,6 +978,8 @@ function createRecorder(options = {}) {
                 size: { width: 640, height: 360 }
               }
             }
+          : deferInitialCaptureStartup
+            ? null
           : await resolveCaptureSourceForDisplay(resolveDisplayForCursor());
         sessionStore = createSessionStore({
           contextFolderPath,
@@ -919,7 +990,7 @@ function createRecorder(options = {}) {
         logger.log('Recording session started', { sessionDir: sessionStore.sessionDir });
 
         try {
-          if (!IS_E2E_FAKE_CAPTURE) {
+          if (!IS_E2E_FAKE_CAPTURE && initialSourceDetails) {
             await startRendererCapture({
               nextSourceDetails: initialSourceDetails,
               reason: 'session-start'
@@ -937,6 +1008,7 @@ function createRecorder(options = {}) {
           }
           sessionStore = null;
           sourceDetails = null;
+          rendererCaptureSourceDetails = null;
           if (captureWindow && !captureTimer) {
             await tryStopRendererCapture({ timeoutMs: STOP_TIMEOUT_MS }).catch(function () {
               // best effort cleanup on startup failure
@@ -998,6 +1070,7 @@ function createRecorder(options = {}) {
 
       sessionStore = null;
       sourceDetails = null;
+      rendererCaptureSourceDetails = null;
       return { ok: true };
     })();
 

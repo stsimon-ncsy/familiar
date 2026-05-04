@@ -125,6 +125,69 @@ test('requestScreenRecordingPermission returns unavailable on non-darwin', async
   }
 })
 
+test('screen recording permission is granted on Windows without macOS API calls', async () => {
+  const originalLoad = Module._load
+  const calls = []
+
+  const stubElectron = {
+    systemPreferences: {
+      askForMediaAccess: () => {
+        calls.push('askForMediaAccess')
+        return false
+      },
+      getMediaAccessStatus: () => {
+        calls.push('getMediaAccessStatus')
+        return 'denied'
+      }
+    },
+    shell: {
+      openExternal: () => {
+        calls.push('openExternal')
+      }
+    }
+  }
+
+  Module._load = function (request, parent, isMain) {
+    if (request === 'electron') {
+      return stubElectron
+    }
+    return originalLoad.call(this, request, parent, isMain)
+  }
+
+  try {
+    const restored = await withProcessPlatform('win32', async () => {
+      resetModule('../src/screen-capture/permissions')
+      const {
+        getScreenRecordingPermissionStatus,
+        requestScreenRecordingPermission,
+        openScreenRecordingSettings
+      } = require('../src/screen-capture/permissions')
+
+      assert.equal(getScreenRecordingPermissionStatus(), 'granted')
+
+      const requestResult = await requestScreenRecordingPermission()
+      assert.deepEqual(requestResult, {
+        ok: true,
+        permissionStatus: 'granted',
+        granted: true
+      })
+
+      const openResult = await openScreenRecordingSettings()
+      assert.deepEqual(openResult, {
+        ok: false,
+        message: 'Screen Recording settings are only available on macOS.'
+      })
+      assert.deepEqual(calls, [])
+    })
+    if (!restored) {
+      return
+    }
+  } finally {
+    Module._load = originalLoad
+    resetModule('../src/screen-capture/permissions')
+  }
+})
+
 test('requestScreenRecordingPermission auto-grants in E2E mode on darwin', async () => {
   const originalLoad = Module._load
   const askForMediaAccessCalls = []

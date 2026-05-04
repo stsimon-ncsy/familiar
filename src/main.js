@@ -34,6 +34,10 @@ const { APP_MODE, setAppMode } = require('./app-mode');
 const { initializeProcessOwnership } = require('./startup/ownership');
 const { microcopy } = require('./microcopy/microcopy');
 const {
+    isSupportedDesktopPlatform,
+    shouldInitializeRecordingForPlatform
+} = require('./platform/support');
+const {
     createAutoSessionCleanupScheduler,
     DEFAULT_CHECK_INTERVAL_MS,
     resolveCleanupRetentionDays
@@ -770,8 +774,8 @@ if (isPrimaryInstance) {
     registerMainProcessIpc();
 
     app.whenReady().then(async () => {
-        if (process.platform !== 'darwin' && !isE2E) {
-            console.error('Familiar desktop app is macOS-only right now.');
+        if (!isSupportedDesktopPlatform(process.platform) && !isE2E) {
+            console.error(`Familiar desktop app does not support ${process.platform} yet.`);
             app.quit();
             return;
         }
@@ -799,7 +803,10 @@ if (isPrimaryInstance) {
         } catch (error) {
             console.error('Failed to hydrate recording state from OS permission', error);
         }
-        const shouldInitializeRecording = process.platform === 'darwin' || isE2E;
+        const shouldInitializeRecording = shouldInitializeRecordingForPlatform({
+            platform: process.platform,
+            isE2E
+        });
         if (shouldInitializeRecording) {
             presenceMonitor = createPresenceMonitor({ logger: console });
             if (pauseDurationOverrideMs) {
@@ -848,16 +855,21 @@ if (isPrimaryInstance) {
 
         let wasOpenedAtLogin = false;
 
-        if (process.platform === 'darwin') {
+        if (isSupportedDesktopPlatform(process.platform)) {
             try {
                 const loginItemSettings = app.getLoginItemSettings();
                 wasOpenedAtLogin = loginItemSettings?.wasOpenedAtLogin === true;
             } catch (error) {
                 console.warn('Failed to read login item settings', error);
             }
+        }
+
+        if (process.platform === 'darwin') {
             enterBackgroundMode();
             app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
+        }
 
+        if (isSupportedDesktopPlatform(process.platform)) {
             createTray();
             const updateState = initializeAutoUpdater({ isE2E, isCI });
             if (updateState.enabled) {
@@ -937,7 +949,7 @@ app.on('render-process-gone', (_event, details) => {
 });
 
 app.on('window-all-closed', (event) => {
-    if (process.platform === 'darwin') {
+    if (isSupportedDesktopPlatform(process.platform)) {
         if (isQuitting || app.isQuittingForUpdate) {
             return;
         }

@@ -1,4 +1,4 @@
-const path = require('node:path')
+const { joinPathLike } = require('./utils/path-style')
 
 const SETTINGS_DIR_NAME = '.familiar'
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -16,7 +16,7 @@ const getStorageDir = (contextFolderPath) => {
   if (!contextFolderPath || typeof contextFolderPath !== 'string') {
     return ''
   }
-  return path.join(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME)
+  return joinPathLike(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME)
 }
 
 module.exports = {

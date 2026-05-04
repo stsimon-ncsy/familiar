@@ -86,6 +86,65 @@ test('detectActiveWindow returns the active window candidate', async () => {
   assert.equal(actual.bundleId, expected.bundleId)
 })
 
+test('detectWindowCandidates uses Windows foreground metadata on Windows', async () => {
+  const detector = createActiveWindowDetector({
+    logger,
+    platform: 'win32',
+    resolveWindowsForegroundScriptPathImpl: () => 'C:\\App\\resources\\windows\\windows-foreground.ps1',
+    runWindowsForegroundImpl: async ({ scriptPath }) => ({
+      ok: true,
+      reason: 'ok',
+      scriptPath,
+      window: {
+        name: 'Code',
+        bundleId: null,
+        title: 'notes.md - Visual Studio Code',
+        pid: 1234,
+        active: true
+      }
+    })
+  })
+
+  const candidates = await detector.detectWindowCandidates()
+
+  assert.equal(await detector.resolveBinaryPath(), 'C:\\App\\resources\\windows\\windows-foreground.ps1')
+  assert.equal(candidates.length, 1)
+  assert.equal(candidates[0].name, 'Code')
+  assert.equal(candidates[0].bundleId, null)
+  assert.equal(candidates[0].title, 'notes.md - Visual Studio Code')
+  assert.equal(candidates[0].active, true)
+  assert.equal(detector.metadataFailureIsNonFatal, true)
+})
+
+test('detectWindowCandidates reports Windows foreground failure as metadata unavailable', async () => {
+  const warnings = []
+  const detector = createActiveWindowDetector({
+    logger: {
+      log: () => {},
+      warn: (...args) => warnings.push(args),
+      error: () => {}
+    },
+    platform: 'win32',
+    resolveWindowsForegroundScriptPathImpl: () => 'C:\\App\\resources\\windows\\windows-foreground.ps1',
+    runWindowsForegroundImpl: async () => ({
+      ok: false,
+      reason: 'foreground_unavailable',
+      message: 'No foreground window detected.',
+      window: null
+    })
+  })
+
+  await assert.rejects(
+    detector.detectWindowCandidates(),
+    (error) => {
+      assert.equal(error.metadataUnavailable, true)
+      assert.equal(error.reason, 'foreground_unavailable')
+      return /No foreground window detected\./.test(error.message)
+    }
+  )
+  assert.equal(warnings.length, 0)
+})
+
 test('resolveActiveWindowBinaryPath passes a numeric mode flag to fs.promises.access', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'familiar-awd-'))
   const binaryPath = path.join(tmpDir, 'list-on-screen-apps-helper')

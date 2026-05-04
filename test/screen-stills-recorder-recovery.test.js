@@ -1908,3 +1908,336 @@ test('recorder fails when active window detection throws before capture', async 
     resetRecorderModule();
   }
 });
+
+test('recorder stores Windows foreground metadata when optional detection succeeds', async () => {
+  resetRecorderModule();
+
+  const ipcMain = new EventEmitter();
+  const queueEnqueues = [];
+  const windowSnapshots = [
+    [
+      {
+        name: 'Code',
+        bundleId: null,
+        title: 'notes.md - Visual Studio Code',
+        pid: 1234,
+        active: true
+      }
+    ],
+    [
+      {
+        name: 'Code',
+        bundleId: null,
+        title: 'notes.md - Visual Studio Code',
+        pid: 1234,
+        active: true
+      }
+    ]
+  ];
+  let detectCalls = 0;
+  let startCalls = 0;
+  let stopCalls = 0;
+  let captureCalls = 0;
+  let getSourcesCalls = 0;
+
+  function createWebContents() {
+    const webContents = new EventEmitter();
+    webContents.getURL = () => 'file://stills.html';
+    webContents.send = (channel, payload) => {
+      if (channel === 'screen-stills:start') {
+        startCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'started'
+          });
+        });
+      }
+
+      if (channel === 'screen-stills:stop') {
+        stopCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'stopped'
+          });
+        });
+      }
+
+      if (channel === 'screen-stills:capture') {
+        captureCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'captured',
+            imageBuffer: MOCK_CAPTURE_IMAGE_BUFFER
+          });
+        });
+      }
+    };
+    return webContents;
+  }
+
+  function BrowserWindowStub() {
+    this.webContents = createWebContents();
+    this._destroyed = false;
+
+    this.loadFile = () => {
+      process.nextTick(() => {
+        this.webContents.emit('did-finish-load');
+        ipcMain.emit('screen-stills:ready', { sender: this.webContents });
+      });
+    };
+
+    this.on = () => {};
+    this.isDestroyed = () => this._destroyed;
+    this.destroy = () => {
+      this._destroyed = true;
+    };
+  }
+
+  const stubElectron = {
+    BrowserWindow: BrowserWindowStub,
+    desktopCapturer: {
+      getSources: async () => {
+        getSourcesCalls += 1;
+        return [createMockSource()];
+      }
+    },
+    ipcMain,
+    screen: {
+      getAllDisplays: () => [{ id: 1, bounds: { width: 1000, height: 800 }, scaleFactor: 1 }],
+      getPrimaryDisplay: () => ({ id: 1, bounds: { width: 1000, height: 800 }, scaleFactor: 1 })
+    },
+    app: { getVersion: () => 'test' }
+  };
+
+  const originalLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === 'electron') {
+      return stubElectron;
+    }
+    if (request === '../screen-capture/permissions') {
+      return { isScreenRecordingPermissionGranted: () => true };
+    }
+    if (request === './session-store') {
+      return {
+        createSessionStore: ({ contextFolderPath }) => {
+          const sessionId = 'session-test';
+          return {
+            sessionId,
+            sessionDir: `${contextFolderPath}/familiar/stills/${sessionId}`,
+            nextCaptureFile: (capturedAt) => ({ fileName: 'capture.webp', capturedAt })
+          };
+        }
+      };
+    }
+    if (request === './stills-queue') {
+      return {
+        createStillsQueue: () => ({
+          enqueueCapture: (payload) => {
+            queueEnqueues.push(payload);
+          },
+          close: () => {}
+        })
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    const { createRecorder } = require('../src/screen-stills/recorder');
+    const recorder = createRecorder({
+      logger: { log: () => {}, warn: () => {}, error: () => {} },
+      intervalSeconds: 1,
+      lowPowerModeMonitor: createDeterministicLowPowerModeMonitor(),
+      createActiveWindowDetectorImpl: () => ({
+        metadataFailureIsNonFatal: true,
+        detectWindowCandidates: async () => {
+          const value = windowSnapshots[detectCalls] || [];
+          detectCalls += 1;
+          return value;
+        }
+      })
+    });
+
+    const result = await recorder.start({ contextFolderPath: '/tmp/familiar-test' });
+
+    assert.equal(result.ok, true);
+    assert.equal(getSourcesCalls >= 2, true);
+    assert.equal(startCalls, 1);
+    assert.equal(captureCalls, 1);
+    assert.equal(detectCalls, 2);
+    assert.equal(queueEnqueues.length, 1);
+    assert.equal(queueEnqueues[0].appName, 'Code');
+    assert.equal(queueEnqueues[0].appBundleId, null);
+    assert.equal(queueEnqueues[0].appTitle, 'notes.md - Visual Studio Code');
+    assert.equal(queueEnqueues[0].appLabelSource, 'after');
+    assert.deepEqual(queueEnqueues[0].visibleWindowNames, ['Code']);
+
+    await recorder.stop({ reason: 'test' });
+    assert.equal(stopCalls, 1);
+  } finally {
+    Module._load = originalLoad;
+    resetRecorderModule();
+  }
+});
+
+test('recorder continues capture with null metadata when optional Windows foreground detection fails', async () => {
+  resetRecorderModule();
+
+  const ipcMain = new EventEmitter();
+  const queueEnqueues = [];
+  const warnings = [];
+  let detectCalls = 0;
+  let startCalls = 0;
+  let stopCalls = 0;
+  let captureCalls = 0;
+  let getSourcesCalls = 0;
+
+  function createWebContents() {
+    const webContents = new EventEmitter();
+    webContents.getURL = () => 'file://stills.html';
+    webContents.send = (channel, payload) => {
+      if (channel === 'screen-stills:start') {
+        startCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'started'
+          });
+        });
+      }
+
+      if (channel === 'screen-stills:stop') {
+        stopCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'stopped'
+          });
+        });
+      }
+
+      if (channel === 'screen-stills:capture') {
+        captureCalls += 1;
+        process.nextTick(() => {
+          ipcMain.emit('screen-stills:status', {}, {
+            requestId: payload.requestId,
+            status: 'captured',
+            imageBuffer: MOCK_CAPTURE_IMAGE_BUFFER
+          });
+        });
+      }
+    };
+    return webContents;
+  }
+
+  function BrowserWindowStub() {
+    this.webContents = createWebContents();
+    this._destroyed = false;
+
+    this.loadFile = () => {
+      process.nextTick(() => {
+        this.webContents.emit('did-finish-load');
+        ipcMain.emit('screen-stills:ready', { sender: this.webContents });
+      });
+    };
+
+    this.on = () => {};
+    this.isDestroyed = () => this._destroyed;
+    this.destroy = () => {
+      this._destroyed = true;
+    };
+  }
+
+  const stubElectron = {
+    BrowserWindow: BrowserWindowStub,
+    desktopCapturer: {
+      getSources: async () => {
+        getSourcesCalls += 1;
+        return [createMockSource()];
+      }
+    },
+    ipcMain,
+    screen: {
+      getAllDisplays: () => [{ id: 1, bounds: { width: 1000, height: 800 }, scaleFactor: 1 }],
+      getPrimaryDisplay: () => ({ id: 1, bounds: { width: 1000, height: 800 }, scaleFactor: 1 })
+    },
+    app: { getVersion: () => 'test' }
+  };
+
+  const originalLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === 'electron') {
+      return stubElectron;
+    }
+    if (request === '../screen-capture/permissions') {
+      return { isScreenRecordingPermissionGranted: () => true };
+    }
+    if (request === './session-store') {
+      return {
+        createSessionStore: ({ contextFolderPath }) => {
+          const sessionId = 'session-test';
+          return {
+            sessionId,
+            sessionDir: `${contextFolderPath}/familiar/stills/${sessionId}`,
+            nextCaptureFile: (capturedAt) => ({ fileName: 'capture.webp', capturedAt })
+          };
+        }
+      };
+    }
+    if (request === './stills-queue') {
+      return {
+        createStillsQueue: () => ({
+          enqueueCapture: (payload) => {
+            queueEnqueues.push(payload);
+          },
+          close: () => {}
+        })
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    const { createRecorder } = require('../src/screen-stills/recorder');
+    const recorder = createRecorder({
+      logger: {
+        log: () => {},
+        warn: (...args) => warnings.push(args),
+        error: () => {}
+      },
+      intervalSeconds: 1,
+      lowPowerModeMonitor: createDeterministicLowPowerModeMonitor(),
+      createActiveWindowDetectorImpl: () => ({
+        metadataFailureIsNonFatal: true,
+        detectWindowCandidates: async () => {
+          detectCalls += 1;
+          throw new Error('Windows foreground helper unavailable.');
+        }
+      })
+    });
+
+    const result = await recorder.start({ contextFolderPath: '/tmp/familiar-test' });
+
+    assert.equal(result.ok, true);
+    assert.equal(getSourcesCalls >= 2, true);
+    assert.equal(startCalls, 1);
+    assert.equal(captureCalls, 1);
+    assert.equal(detectCalls, 2);
+    assert.equal(queueEnqueues.length, 1);
+    assert.equal(queueEnqueues[0].appName, null);
+    assert.equal(queueEnqueues[0].appBundleId, null);
+    assert.equal(queueEnqueues[0].appTitle, null);
+    assert.equal(queueEnqueues[0].appLabelSource, null);
+    assert.deepEqual(queueEnqueues[0].visibleWindowNames, []);
+    assert.equal(warnings.length >= 2, true);
+
+    await recorder.stop({ reason: 'test' });
+    assert.equal(stopCalls, 1);
+  } finally {
+    Module._load = originalLoad;
+    resetRecorderModule();
+  }
+});

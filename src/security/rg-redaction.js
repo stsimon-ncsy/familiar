@@ -61,51 +61,93 @@ const fileExists = async (candidatePath) => {
   }
 }
 
-const getArchSuffix = (arch) => {
-  if (arch === 'arm64') {
-    return 'darwin-arm64'
+const getRgBinaryName = ({ platform, arch } = {}) => {
+  if (platform === 'win32') {
+    return 'rg.exe'
   }
-  if (arch === 'x64') {
-    return 'darwin-x64'
+
+  if (platform === 'darwin') {
+    if (arch === 'arm64') {
+      return 'rg-darwin-arm64'
+    }
+    if (arch === 'x64') {
+      return 'rg-darwin-x64'
+    }
   }
+
   return ''
 }
 
-const resolveRgBinaryPath = async () => {
+const resolveExecutableInvocation = ({ executablePath, args = [] } = {}) => {
+  if (process.platform === 'win32' && typeof executablePath === 'string' && /\.js$/i.test(executablePath)) {
+    return {
+      command: process.execPath,
+      args: [executablePath, ...args]
+    }
+  }
+
+  return {
+    command: executablePath,
+    args
+  }
+}
+
+const resolveRgBinaryPath = async ({
+  platform = process.platform,
+  arch = process.arch,
+  repoRoot = path.resolve(__dirname, '..', '..'),
+  resourcesPath = typeof process.resourcesPath === 'string' ? process.resourcesPath : '',
+  logger = console
+} = {}) => {
   const envOverride = process.env.FAMILIAR_RG_BINARY
   if (envOverride && (await fileExists(envOverride))) {
     return envOverride
   }
 
-  const archSuffix = getArchSuffix(process.arch)
-  if (!archSuffix) {
-    console.warn('RG redaction unsupported architecture', {
-      arch: process.arch
+  const binaryName = getRgBinaryName({ platform, arch })
+  if (!binaryName) {
+    logger.warn('RG redaction unsupported platform or architecture', {
+      platform,
+      arch
     })
     return ''
   }
 
-  const binaryName = `rg-${archSuffix}`
-
-  const resourcesPath = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
   if (resourcesPath) {
-    const packagedCandidate = path.join(resourcesPath, 'rg', binaryName)
-    if (await fileExists(packagedCandidate)) {
-      return packagedCandidate
+    const packagedCandidates = platform === 'win32'
+      ? [
+          path.join(resourcesPath, binaryName),
+          path.join(resourcesPath, 'rg', binaryName)
+        ]
+      : [path.join(resourcesPath, 'rg', binaryName)]
+
+    for (const packagedCandidate of packagedCandidates) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await fileExists(packagedCandidate)) {
+        return packagedCandidate
+      }
     }
   }
 
-  const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
-  const devCandidate = path.join(repoRoot, 'code', 'desktopapp', 'scripts', 'bin', 'rg', binaryName)
-  if (await fileExists(devCandidate)) {
-    return devCandidate
+  const legacyRepoRoot = path.resolve(__dirname, '..', '..', '..', '..')
+  const devCandidates = [
+    path.join(repoRoot, 'scripts', 'bin', 'rg', binaryName),
+    path.join(legacyRepoRoot, 'code', 'desktopapp', 'scripts', 'bin', 'rg', binaryName)
+  ].filter((candidate, index, candidates) => candidate && candidates.indexOf(candidate) === index)
+
+  for (const devCandidate of devCandidates) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await fileExists(devCandidate)) {
+      return devCandidate
+    }
   }
 
-  console.warn('RG redaction binary not found', {
+  logger.warn('RG redaction binary not found', {
     env: envOverride || null,
     resourcesPath: resourcesPath || null,
-    devCandidate,
-    arch: process.arch
+    devCandidates,
+    platform,
+    arch
   })
 
   return ''
@@ -128,7 +170,8 @@ const collectCandidateLineIndexes = async ({ rgBinaryPath, content }) => {
   args.push('-')
 
   return await new Promise((resolve, reject) => {
-    const child = spawn(rgBinaryPath, args, {
+    const invocation = resolveExecutableInvocation({ executablePath: rgBinaryPath, args })
+    const child = spawn(invocation.command, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
@@ -482,5 +525,6 @@ module.exports = {
   shouldSkipMatch,
   collectCandidateLineIndexes,
   applyDocumentLevelSsnRedaction,
-  applyDocumentLevelPemRedaction
+  applyDocumentLevelPemRedaction,
+  resolveExecutableInvocation
 }

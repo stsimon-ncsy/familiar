@@ -4,6 +4,7 @@ const {
   runAppleVisionOcrBinary,
   buildMarkdownLayoutFromOcr
 } = require('../ocr/apple-vision-ocr')
+const { createWindowsOcrExtractor } = require('./windows-ocr-extractor')
 
 const parseVisibleWindowNames = (value, { logger = console } = {}) => {
   if (Array.isArray(value)) {
@@ -125,9 +126,50 @@ const createAppleVisionOcrExtractor = ({
   }
 }
 
-const createStillsMarkdownExtractor = (options = {}) => createAppleVisionOcrExtractor(options)
+const isWindowsOcrAvailable = ({ platform = process.platform } = {}) => platform === 'win32'
+
+const normalizeExtractorType = ({
+  value,
+  platform = process.platform,
+  isWindowsOcrAvailable: windowsOcrAvailable = isWindowsOcrAvailable({ platform })
+} = {}) => {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (normalized === 'windows_ocr') {
+    return 'windows_ocr'
+  }
+  if (platform === 'win32' && windowsOcrAvailable) {
+    return 'windows_ocr'
+  }
+  return 'apple_vision_ocr'
+}
+
+const createStillsMarkdownExtractor = (options = {}) => {
+  const {
+    settings,
+    platform = process.platform,
+    isWindowsOcrAvailableImpl = isWindowsOcrAvailable,
+    createWindowsOcrExtractorImpl = createWindowsOcrExtractor
+  } = options
+  const config = settings?.stills_markdown_extractor && typeof settings.stills_markdown_extractor === 'object'
+    ? settings.stills_markdown_extractor
+    : {}
+
+  const extractorType = normalizeExtractorType({
+    value: config.type,
+    platform,
+    isWindowsOcrAvailable: isWindowsOcrAvailableImpl({ platform, settings })
+  })
+
+  if (extractorType === 'windows_ocr') {
+    return createWindowsOcrExtractorImpl(options)
+  }
+
+  return createAppleVisionOcrExtractor(options)
+}
 
 module.exports = {
   createStillsMarkdownExtractor,
-  createAppleVisionOcrExtractor
+  createAppleVisionOcrExtractor,
+  isWindowsOcrAvailable,
+  normalizeExtractorType
 }

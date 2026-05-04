@@ -142,6 +142,20 @@ const normalizeLanguages = (raw) => {
         .join(',');
 };
 
+const resolveExecutableInvocation = ({ executablePath, args = [] } = {}) => {
+    if (process.platform === 'win32' && typeof executablePath === 'string' && /\.js$/i.test(executablePath)) {
+        return {
+            command: process.execPath,
+            args: [executablePath, ...args],
+        };
+    }
+
+    return {
+        command: executablePath,
+        args,
+    };
+};
+
 const runAppleVisionOcr = async ({
     imagePath,
     level,
@@ -183,7 +197,11 @@ const runAppleVisionOcr = async ({
       );
     }
 
-    const { stdout } = await execFileAsync(OCR_BINARY_PATH, ocrArgs, {
+    const invocation = resolveExecutableInvocation({
+        executablePath: OCR_BINARY_PATH,
+        args: ocrArgs,
+    });
+    const { stdout } = await execFileAsync(invocation.command, invocation.args, {
       maxBuffer: 1024 * 1024 * 50,
     });
 
@@ -354,6 +372,7 @@ module.exports = {
     normalizeLevel,
     normalizeLanguages,
     normalizeMinConfidence,
+    resolveExecutableInvocation,
     escapeForQuotedBullet,
     buildMarkdownLayoutFromOcr,
     runAppleVisionOcr,

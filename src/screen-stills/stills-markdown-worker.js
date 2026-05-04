@@ -7,6 +7,12 @@ const { RetryableError } = require('../utils/retry')
 const { createStillsQueue } = require('./stills-queue')
 const { createStillsMarkdownExtractor } = require('./stills-markdown-extractor')
 const {
+  dirnamePathLike,
+  joinPathLike,
+  parsePathLike,
+  relativePathLike
+} = require('../utils/path-style')
+const {
   FAMILIAR_BEHIND_THE_SCENES_DIR_NAME,
   STILLS_DIR_NAME,
   STILLS_MARKDOWN_DIR_NAME
@@ -34,15 +40,15 @@ const defaultIsOnlineImpl = async () => {
 }
 
 const resolveMarkdownPath = ({ contextFolderPath, imagePath } = {}) => {
-  const stillsRoot = path.join(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME, STILLS_DIR_NAME)
-  const markdownRoot = path.join(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME, STILLS_MARKDOWN_DIR_NAME)
+  const stillsRoot = joinPathLike(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME, STILLS_DIR_NAME)
+  const markdownRoot = joinPathLike(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME, STILLS_MARKDOWN_DIR_NAME)
 
   const relative = imagePath.startsWith(stillsRoot)
-    ? path.relative(stillsRoot, imagePath)
+    ? relativePathLike(stillsRoot, imagePath)
     : path.basename(imagePath)
 
-  const parsed = path.parse(relative)
-  return path.join(markdownRoot, parsed.dir, `${parsed.name}.md`)
+  const parsed = parsePathLike(relative)
+  return joinPathLike(markdownRoot, parsed.dir, `${parsed.name}.md`)
 }
 
 const writeMarkdownFile = async ({
@@ -56,7 +62,7 @@ const writeMarkdownFile = async ({
     throw new Error('Markdown content is required.')
   }
   const outputPath = resolveMarkdownPath({ contextFolderPath, imagePath })
-  await fs.mkdir(path.dirname(outputPath), { recursive: true })
+  await fs.mkdir(dirnamePathLike(outputPath), { recursive: true })
   const payload = markdown.endsWith('\n') ? markdown : `${markdown}\n`
   const redactionResult = await scanAndRedactContentImpl({
     content: payload,

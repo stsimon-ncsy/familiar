@@ -3,11 +3,24 @@ const assert = require('node:assert/strict')
 
 const {
   createStillsMarkdownExtractor,
-  createAppleVisionOcrExtractor
+  createAppleVisionOcrExtractor,
+  normalizeExtractorType
 } = require('../src/screen-stills/stills-markdown-extractor')
 
-test('createStillsMarkdownExtractor always uses Apple Vision OCR', () => {
+test('normalizeExtractorType preserves windows_ocr', () => {
+  assert.equal(
+    normalizeExtractorType({
+      value: 'windows_ocr',
+      platform: 'darwin',
+      isWindowsOcrAvailable: false
+    }),
+    'windows_ocr'
+  )
+})
+
+test('createStillsMarkdownExtractor keeps cloud OCR non-default on macOS', () => {
   const extractor = createStillsMarkdownExtractor({
+    platform: 'darwin',
     settings: { stills_markdown_extractor: { type: 'llm' } },
     resolveBinaryPathImpl: async () => '/tmp/familiar-ocr-helper',
     runAppleVisionOcrBinaryImpl: async () => ({ meta: {}, lines: [] }),
@@ -15,6 +28,25 @@ test('createStillsMarkdownExtractor always uses Apple Vision OCR', () => {
   })
 
   assert.equal(extractor.type, 'apple_vision_ocr')
+})
+
+test('createStillsMarkdownExtractor defaults to Windows OCR when available on Windows', () => {
+  const extractor = createStillsMarkdownExtractor({
+    platform: 'win32',
+    settings: {},
+    isWindowsOcrAvailableImpl: () => true,
+    createWindowsOcrExtractorImpl: () => ({
+      type: 'windows_ocr',
+      execution: { maxParallelBatches: 2 },
+      canRun: async () => ({ ok: true }),
+      extractBatch: async () => new Map()
+    }),
+    resolveBinaryPathImpl: async () => '/tmp/familiar-ocr-helper',
+    runAppleVisionOcrBinaryImpl: async () => ({ meta: {}, lines: [] }),
+    buildMarkdownLayoutFromOcrImpl: () => 'mock markdown'
+  })
+
+  assert.equal(extractor.type, 'windows_ocr')
 })
 
 test('apple vision ocr extractor caps parallel batches at 2', () => {

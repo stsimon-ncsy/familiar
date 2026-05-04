@@ -6,12 +6,41 @@ const { spawnSync } = require('node:child_process')
 
 const { RULES } = require('../src/security/rg-redaction-rules')
 
-const getBundledRgCandidate = () => {
-  const archSuffix = process.arch === 'arm64' ? 'darwin-arm64' : process.arch === 'x64' ? 'darwin-x64' : ''
+const getBundledRgCandidate = ({
+  platform = process.platform,
+  arch = process.arch
+} = {}) => {
+  if (platform === 'win32') {
+    return path.join(__dirname, '..', 'scripts', 'bin', 'rg', 'rg.exe')
+  }
+
+  const archSuffix = arch === 'arm64' ? 'darwin-arm64' : arch === 'x64' ? 'darwin-x64' : ''
   if (!archSuffix) {
     return ''
   }
   return path.join(__dirname, '..', 'scripts', 'bin', 'rg', `rg-${archSuffix}`)
+}
+
+const findRgOnPath = () => {
+  const executableNames = process.platform === 'win32' ? ['rg.exe', 'rg'] : ['rg']
+  const searchDirs = String(process.env.PATH || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  for (const searchDir of searchDirs) {
+    for (const executableName of executableNames) {
+      const candidate = path.join(searchDir, executableName)
+      if (fs.existsSync(candidate)) {
+        const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore' })
+        if (probe.status === 0) {
+          return candidate
+        }
+      }
+    }
+  }
+
+  return ''
 }
 
 const resolveRgBinaryForParityTest = () => {
@@ -25,7 +54,7 @@ const resolveRgBinaryForParityTest = () => {
     return bundled
   }
 
-  return ''
+  return findRgOnPath()
 }
 
 const rgBinaryPath = resolveRgBinaryForParityTest()
@@ -79,7 +108,8 @@ const rgMatches = ({ pattern, input }) => {
     ['--engine', 'auto', '--line-number', '--no-heading', '-e', pattern, '-'],
     {
       input,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      shell: process.platform === 'win32' && !path.isAbsolute(rgBinaryPath)
     }
   )
 

@@ -59,8 +59,10 @@ test('settings:applyDefaultContextFolder notifies with full saved settings paylo
   const originalLoad = Module._load
   const originalSettingsDir = process.env.FAMILIAR_SETTINGS_DIR
   const originalHome = process.env.HOME
+  const originalLocalAppData = process.env.LOCALAPPDATA
   process.env.FAMILIAR_SETTINGS_DIR = settingsDir
   process.env.HOME = homeDir
+  process.env.LOCALAPPDATA = homeDir
 
   Module._load = function (request, parent, isMain) {
     if (request === 'electron') {
@@ -97,6 +99,7 @@ test('settings:applyDefaultContextFolder notifies with full saved settings paylo
     resetModule('../src/ipc/settings')
     process.env.FAMILIAR_SETTINGS_DIR = originalSettingsDir
     process.env.HOME = originalHome
+    process.env.LOCALAPPDATA = originalLocalAppData
     fs.rmSync(tmpRoot, { recursive: true, force: true })
   }
 })
@@ -148,8 +151,10 @@ test('settings:applyDefaultContextFolder does not save after wizard completion',
   const originalLoad = Module._load
   const originalSettingsDir = process.env.FAMILIAR_SETTINGS_DIR
   const originalHome = process.env.HOME
+  const originalLocalAppData = process.env.LOCALAPPDATA
   process.env.FAMILIAR_SETTINGS_DIR = settingsDir
   process.env.HOME = homeDir
+  process.env.LOCALAPPDATA = homeDir
 
   Module._load = function (request, parent, isMain) {
     if (request === 'electron') {
@@ -183,6 +188,7 @@ test('settings:applyDefaultContextFolder does not save after wizard completion',
     resetModule('../src/ipc/settings')
     process.env.FAMILIAR_SETTINGS_DIR = originalSettingsDir
     process.env.HOME = originalHome
+    process.env.LOCALAPPDATA = originalLocalAppData
     fs.rmSync(tmpRoot, { recursive: true, force: true })
   }
 })

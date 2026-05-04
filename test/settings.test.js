@@ -7,9 +7,42 @@ const path = require('node:path')
 const {
   loadSettings,
   saveSettings,
-  validateContextFolderPath
+  validateContextFolderPath,
+  resolveDefaultContextFolderPath,
+  resolveSettingsDir
 } = require('../src/settings')
 const { SETTINGS_FILE_NAME } = require('../src/const')
+
+const canPatchProcessPlatform = (() => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  return Boolean(descriptor && descriptor.configurable)
+})()
+
+const withProcessPlatform = async (platform, fn) => {
+  if (process.platform === platform) {
+    await fn()
+    return true
+  }
+
+  if (!canPatchProcessPlatform) {
+    return false
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (!descriptor) {
+    return false
+  }
+
+  const originalDescriptor = { ...descriptor }
+  Object.defineProperty(process, 'platform', { ...originalDescriptor, value: platform })
+
+  try {
+    await fn()
+    return true
+  } finally {
+    Object.defineProperty(process, 'platform', originalDescriptor)
+  }
+}
 
 test('saveSettings persists contextFolderPath', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'familiar-settings-'))
@@ -277,4 +310,68 @@ test('loadSettings exposes parse errors for diagnostics', () => {
   assert.equal(loaded.__loadError.path, settingsPath)
   assert.equal(typeof loaded.__loadError.message, 'string')
   assert.ok(loaded.__loadError.message.length > 0)
+})
+
+test('resolveDefaultContextFolderPath uses LOCALAPPDATA on Windows', async () => {
+  const previousLocalAppData = process.env.LOCALAPPDATA
+  const previousHome = process.env.HOME
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'familiar-settings-'))
+  const localAppData = path.join(tempRoot, 'LocalAppData')
+  const homeDir = path.join(tempRoot, 'home')
+  fs.mkdirSync(localAppData, { recursive: true })
+  fs.mkdirSync(homeDir, { recursive: true })
+  process.env.LOCALAPPDATA = localAppData
+  process.env.HOME = homeDir
+
+  try {
+    const restored = await withProcessPlatform('win32', async () => {
+      assert.equal(resolveDefaultContextFolderPath(), localAppData)
+    })
+    if (!restored) {
+      return
+    }
+  } finally {
+    if (typeof previousLocalAppData === 'undefined') {
+      delete process.env.LOCALAPPDATA
+    } else {
+      process.env.LOCALAPPDATA = previousLocalAppData
+    }
+    if (typeof previousHome === 'undefined') {
+      delete process.env.HOME
+    } else {
+      process.env.HOME = previousHome
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('resolveSettingsDir uses APPDATA on Windows when no override is set', async () => {
+  const previousSettingsDir = process.env.FAMILIAR_SETTINGS_DIR
+  const previousAppData = process.env.APPDATA
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'familiar-settings-'))
+  const appData = path.join(tempRoot, 'Roaming')
+  fs.mkdirSync(appData, { recursive: true })
+  delete process.env.FAMILIAR_SETTINGS_DIR
+  process.env.APPDATA = appData
+
+  try {
+    const restored = await withProcessPlatform('win32', async () => {
+      assert.equal(resolveSettingsDir(), path.join(appData, 'Familiar'))
+    })
+    if (!restored) {
+      return
+    }
+  } finally {
+    if (typeof previousSettingsDir === 'undefined') {
+      delete process.env.FAMILIAR_SETTINGS_DIR
+    } else {
+      process.env.FAMILIAR_SETTINGS_DIR = previousSettingsDir
+    }
+    if (typeof previousAppData === 'undefined') {
+      delete process.env.APPDATA
+    } else {
+      process.env.APPDATA = previousAppData
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
 })

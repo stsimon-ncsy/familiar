@@ -256,6 +256,89 @@ test('resolveRgBinaryPath uses env override when present', async () => {
   }
 })
 
+test('resolveRgBinaryPath resolves Windows dev bundled rg.exe', async () => {
+  const repoRoot = makeTempDir()
+  const rgPath = path.join(repoRoot, 'scripts', 'bin', 'rg', 'rg.exe')
+  fs.mkdirSync(path.dirname(rgPath), { recursive: true })
+  fs.writeFileSync(rgPath, 'stub rg exe', 'utf-8')
+
+  const prior = process.env.FAMILIAR_RG_BINARY
+  delete process.env.FAMILIAR_RG_BINARY
+
+  try {
+    const resolved = await resolveRgBinaryPath({
+      platform: 'win32',
+      arch: 'x64',
+      repoRoot,
+      resourcesPath: ''
+    })
+    assert.equal(resolved, rgPath)
+  } finally {
+    if (prior === undefined) {
+      delete process.env.FAMILIAR_RG_BINARY
+    } else {
+      process.env.FAMILIAR_RG_BINARY = prior
+    }
+  }
+})
+
+test('resolveRgBinaryPath resolves Windows packaged resources rg.exe first', async () => {
+  const repoRoot = makeTempDir()
+  const resourcesPath = path.join(makeTempDir(), 'resources')
+  const packagedRgPath = path.join(resourcesPath, 'rg.exe')
+  const devRgPath = path.join(repoRoot, 'scripts', 'bin', 'rg', 'rg.exe')
+  fs.mkdirSync(resourcesPath, { recursive: true })
+  fs.mkdirSync(path.dirname(devRgPath), { recursive: true })
+  fs.writeFileSync(packagedRgPath, 'packaged rg exe', 'utf-8')
+  fs.writeFileSync(devRgPath, 'dev rg exe', 'utf-8')
+
+  const prior = process.env.FAMILIAR_RG_BINARY
+  delete process.env.FAMILIAR_RG_BINARY
+
+  try {
+    const resolved = await resolveRgBinaryPath({
+      platform: 'win32',
+      arch: 'x64',
+      repoRoot,
+      resourcesPath
+    })
+    assert.equal(resolved, packagedRgPath)
+  } finally {
+    if (prior === undefined) {
+      delete process.env.FAMILIAR_RG_BINARY
+    } else {
+      process.env.FAMILIAR_RG_BINARY = prior
+    }
+  }
+})
+
+test('resolveRgBinaryPath preserves macOS packaged rg lookup', async () => {
+  const repoRoot = makeTempDir()
+  const resourcesPath = path.join(makeTempDir(), 'resources')
+  const packagedRgPath = path.join(resourcesPath, 'rg', 'rg-darwin-x64')
+  fs.mkdirSync(path.dirname(packagedRgPath), { recursive: true })
+  fs.writeFileSync(packagedRgPath, 'packaged darwin rg', 'utf-8')
+
+  const prior = process.env.FAMILIAR_RG_BINARY
+  delete process.env.FAMILIAR_RG_BINARY
+
+  try {
+    const resolved = await resolveRgBinaryPath({
+      platform: 'darwin',
+      arch: 'x64',
+      repoRoot,
+      resourcesPath
+    })
+    assert.equal(resolved, packagedRgPath)
+  } finally {
+    if (prior === undefined) {
+      delete process.env.FAMILIAR_RG_BINARY
+    } else {
+      process.env.FAMILIAR_RG_BINARY = prior
+    }
+  }
+})
+
 test('scanAndRedactContent sets dropContent when payment keyword and 10+ digit card-like sequence co-exist', async () => {
   const { stubPath } = writeStubRgBinary({
     scriptBody: [

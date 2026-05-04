@@ -3,6 +3,10 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { normalizeAppString, unionStringLists } = require('../utils/strings');
+const {
+  resolveWindowsForegroundScriptPath,
+  runWindowsForeground
+} = require('../ocr/windows-foreground');
 
 const execFileAsync = promisify(execFile);
 
@@ -29,7 +33,7 @@ const normalizeWindowCandidate = (candidate) => {
   }
 
   const name = normalizeAppString(candidate.name, '');
-  const bundleId = normalizeAppString(candidate.bundleId, '');
+  const bundleId = normalizeAppString(candidate.bundleId, null);
   const title = normalizeAppString(candidate.title, '');
   const active = candidate.active === true;
   const pid = Number.isFinite(candidate.pid) ? Number(candidate.pid) : null;
@@ -289,38 +293,32 @@ const resolveCaptureAppContext = ({ beforeSnapshot, afterSnapshot, logger } = {}
   };
 };
 
-const createActiveWindowDetector = ({
-  logger = console,
-  resolveBinaryPathImpl = resolveActiveWindowBinaryPath,
-  runWindowListImpl = runWindowList
-} = {}) => {
+const createActiveWindowDetector = (options = {}) => {
+  const {
+    logger = console,
+    platform = process.platform,
+    resolveBinaryPathImpl = resolveActiveWindowBinaryPath,
+    runWindowListImpl = runWindowList,
+    resolveWindowsForegroundScriptPathImpl = resolveWindowsForegroundScriptPath,
+    runWindowsForegroundImpl = runWindowsForeground
+  } = options;
+  const hasWindowListOverride =
+    Object.prototype.hasOwnProperty.call(options, 'resolveBinaryPathImpl') ||
+    Object.prototype.hasOwnProperty.call(options, 'runWindowListImpl');
+  const useWindowsForeground = platform === 'win32' && !hasWindowListOverride;
   let binaryPathPromise = null;
 
   const resolveBinaryPathOnce = async () => {
     if (!binaryPathPromise) {
-      binaryPathPromise = resolveBinaryPathImpl({ logger });
+      binaryPathPromise = useWindowsForeground
+        ? Promise.resolve(resolveWindowsForegroundScriptPathImpl({ logger }))
+        : resolveBinaryPathImpl({ logger });
     }
     return binaryPathPromise;
   };
 
   const detectActiveWindow = async () => {
-    const overrideCandidates = readVisibleWindowsOverride({ logger });
-    if (overrideCandidates !== null) {
-      const candidate = pickActiveWindow(overrideCandidates);
-      if (!candidate) {
-        throw new Error('No active window detected from helper output.');
-      }
-      return candidate;
-    }
-
-    const binaryPath = await resolveBinaryPathOnce();
-    if (!binaryPath) {
-      throw new Error(
-        'list-on-screen-apps helper missing; build it and ensure it is shipped with the app.'
-      );
-    }
-
-    const windows = await runWindowListImpl({ binaryPath, logger, args: DEFAULT_ARGS });
+    const windows = await detectWindowCandidates();
     const candidate = pickActiveWindow(windows);
     if (!candidate) {
       throw new Error('No active window detected from helper output.');
@@ -337,9 +335,27 @@ const createActiveWindowDetector = ({
 
     const binaryPath = await resolveBinaryPathOnce();
     if (!binaryPath) {
+      if (useWindowsForeground) {
+        const error = new Error('Windows foreground helper path unavailable.');
+        error.metadataUnavailable = true;
+        error.reason = 'missing_windows_foreground_helper';
+        throw error;
+      }
       throw new Error(
         'list-on-screen-apps helper missing; build it and ensure it is shipped with the app.'
       );
+    }
+
+    if (useWindowsForeground) {
+      const result = await runWindowsForegroundImpl({ scriptPath: binaryPath, platform, logger });
+      if (!result?.ok || !result?.window) {
+        const error = new Error(result?.message || 'Windows foreground metadata unavailable.');
+        error.metadataUnavailable = true;
+        error.reason = result?.reason || 'foreground_unavailable';
+        throw error;
+      }
+      const candidate = normalizeWindowCandidate(result.window);
+      return candidate ? [candidate] : [];
     }
 
     return runWindowListImpl({ binaryPath, logger, args: DEFAULT_ARGS });
@@ -354,6 +370,8 @@ const createActiveWindowDetector = ({
     detectActiveWindow,
     detectWindowCandidates,
     detectVisibleWindowNames,
+    metadataFailureIsNonFatal: useWindowsForeground,
+    supportsWindowMetadata: useWindowsForeground || platform === 'darwin' || hasWindowListOverride,
     resolveBinaryPath: resolveBinaryPathOnce
   };
 };

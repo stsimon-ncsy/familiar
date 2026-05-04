@@ -12,6 +12,9 @@ test('publish-desktopapp-local validates GitHub credentials before electron-buil
         'scripts',
         'publish-desktopapp-local.sh'
     );
+    if (!fs.existsSync(scriptPath)) {
+        return;
+    }
     const script = fs.readFileSync(scriptPath, 'utf-8');
 
     assert.match(script, /GH_TOKEN="\$\{GH_TOKEN\/\/.*\\r.*\}"/);

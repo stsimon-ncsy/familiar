@@ -1,17 +1,21 @@
 const fs = require('node:fs/promises')
-const path = require('node:path')
+const {
+  dirnamePathLike,
+  joinPathLike,
+  parsePathLike
+} = require('./path-style')
 
 const buildExtractionPath = (inputPath) => {
   if (!inputPath) {
     return inputPath
   }
 
-  const parsed = path.parse(inputPath)
+  const parsed = parsePathLike(inputPath)
   if (!parsed.ext) {
     return `${inputPath}-extraction.md`
   }
 
-  return path.join(parsed.dir, `${parsed.name}-extraction.md`)
+  return joinPathLike(parsed.dir, `${parsed.name}-extraction.md`)
 }
 
 const writeExtractionFile = async ({ imagePath, markdown }) => {
@@ -20,7 +24,7 @@ const writeExtractionFile = async ({ imagePath, markdown }) => {
   }
 
   const outputPath = buildExtractionPath(imagePath)
-  await fs.mkdir(path.dirname(outputPath), { recursive: true })
+  await fs.mkdir(dirnamePathLike(outputPath), { recursive: true })
   const payload = markdown.endsWith('\n') ? markdown : `${markdown}\n`
   await fs.writeFile(outputPath, payload, 'utf-8')
   return outputPath

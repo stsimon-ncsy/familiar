@@ -1,12 +1,11 @@
 const { ipcMain, shell } = require('electron');
 const fs = require('node:fs');
-const path = require('node:path');
 
 const { loadSettings } = require('../settings');
-const { FAMILIAR_BEHIND_THE_SCENES_DIR_NAME } = require('../const');
+const { getStorageDir } = require('../const');
 
 function getFamiliarFolderPath(contextFolderPath) {
-  return path.join(contextFolderPath, FAMILIAR_BEHIND_THE_SCENES_DIR_NAME);
+  return getStorageDir(contextFolderPath);
 }
 
 async function handleOpenStillsFolder() {

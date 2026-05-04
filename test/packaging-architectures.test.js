@@ -36,13 +36,13 @@ test('Apple Vision OCR build script compiles universal helper', () => {
 test('package includes bundled rg resources and build script', () => {
     const packageJsonPath = path.join(appRoot, 'package.json');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-    const resources = Array.isArray(packageJson.build?.extraResources)
-        ? packageJson.build.extraResources
+    const macResources = Array.isArray(packageJson.build?.mac?.extraResources)
+        ? packageJson.build.mac.extraResources
         : [];
 
-    assert.equal(packageJson.scripts['build:rg-bundle'], 'bash scripts/build-rg-bundle.sh');
+    assert.equal(packageJson.scripts['build:rg-bundle'], 'node scripts/build-rg-bundle.js');
     assert.equal(
-        resources.some(
+        macResources.some(
             (resource) =>
                 resource.from === 'scripts/bin/familiar-ocr-helper' &&
                 resource.to === 'familiar-ocr-helper'
@@ -50,7 +50,7 @@ test('package includes bundled rg resources and build script', () => {
         true
     );
     assert.equal(
-        resources.some((resource) => resource.from === 'scripts/bin/rg' && resource.to === 'rg'),
+        macResources.some((resource) => resource.from === 'scripts/bin/rg' && resource.to === 'rg'),
         true
     );
 });
@@ -63,4 +63,95 @@ test('RG bundle script prepares binaries from official releases or env overrides
     assert.match(script, /github\.com\/BurntSushi\/ripgrep\/releases\/download/);
     assert.match(script, /FAMILIAR_RG_DARWIN_ARM64_SOURCE/);
     assert.match(script, /FAMILIAR_RG_DARWIN_X64_SOURCE/);
+});
+
+test('RG bundle node wrapper prepares Windows rg.exe from official releases or env overrides', () => {
+    const buildScriptPath = path.join(appRoot, 'scripts', 'build-rg-bundle.js');
+    const script = fs.readFileSync(buildScriptPath, 'utf-8');
+
+    assert.match(script, /FAMILIAR_RG_VERSION/);
+    assert.match(script, /FAMILIAR_RG_WINDOWS_X64_SOURCE/);
+    assert.match(script, /FAMILIAR_RG_WINDOWS_ARM64_SOURCE/);
+    assert.match(script, /github\.com\/BurntSushi\/ripgrep\/releases\/download/);
+    assert.match(script, /rg\.exe/);
+});
+
+test('package scripts expose Windows portable and per-user NSIS builds', () => {
+    const packageJsonPath = path.join(appRoot, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+
+    assert.equal(
+        packageJson.scripts['validate:win-packaged-resources'],
+        'node scripts/windows/validate-packaged-resources.js --unpacked-dir dist/win-unpacked'
+    );
+    assert.equal(
+        packageJson.scripts['dist:win'],
+        'npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win'
+    );
+    assert.equal(
+        packageJson.scripts['dist:win:portable'],
+        'npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win portable'
+    );
+    assert.equal(
+        packageJson.scripts['dist:win:nsis'],
+        'npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win nsis'
+    );
+});
+
+test('package config builds Windows portable and no-elevation per-user NSIS artifacts', () => {
+    const packageJsonPath = path.join(appRoot, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    const winTargets = packageJson.build?.win?.target || [];
+    const winResources = Array.isArray(packageJson.build?.win?.extraResources)
+        ? packageJson.build.win.extraResources
+        : [];
+
+    assert.deepEqual(winTargets, ['portable', 'nsis']);
+    assert.equal(packageJson.build?.win?.requestedExecutionLevel, 'asInvoker');
+    assert.equal(packageJson.build?.nsis?.oneClick, false);
+    assert.equal(packageJson.build?.nsis?.perMachine, false);
+    assert.equal(packageJson.build?.nsis?.allowElevation, false);
+    assert.equal(packageJson.build?.nsis?.allowToChangeInstallationDirectory, true);
+    assert.equal(
+        winResources.some(
+            (resource) =>
+                resource.from === 'scripts/windows/windows-media-ocr-probe.ps1' &&
+                resource.to === 'windows/windows-media-ocr-probe.ps1'
+        ),
+        true
+    );
+    assert.equal(
+        winResources.some(
+            (resource) =>
+                resource.from === 'scripts/windows/windows-ocr.ps1' &&
+                resource.to === 'windows/windows-ocr.ps1'
+        ),
+        true
+    );
+    assert.equal(
+        winResources.some(
+            (resource) =>
+                resource.from === 'scripts/windows/windows-foreground.ps1' &&
+                resource.to === 'windows/windows-foreground.ps1'
+        ),
+        true
+    );
+    assert.equal(
+        winResources.some(
+            (resource) =>
+                resource.from === 'scripts/bin/rg/rg.exe' &&
+                resource.to === 'rg.exe'
+        ),
+        true
+    );
+});
+
+test('package scripts use cross-platform node wrappers for Windows shells', () => {
+    const packageJsonPath = path.join(appRoot, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+
+    assert.equal(packageJson.scripts['build:apple-vision-ocr'], 'node scripts/build-apple-vision-ocr.js');
+    assert.equal(packageJson.scripts['build:active-window-detector'], 'node scripts/build-active-window-detector.js');
+    assert.equal(packageJson.scripts['rebuild:electron'], 'node scripts/rebuild-for-electron.js');
+    assert.equal(packageJson.scripts.test, 'npm run rebuild:node && node scripts/run-unit-tests.js');
 });

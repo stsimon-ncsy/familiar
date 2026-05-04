@@ -133,6 +133,20 @@ const fileExists = async (candidatePath) => {
   }
 }
 
+const resolveExecutableInvocation = ({ executablePath, args = [] } = {}) => {
+  if (process.platform === 'win32' && typeof executablePath === 'string' && /\.js$/i.test(executablePath)) {
+    return {
+      command: process.execPath,
+      args: [executablePath, ...args]
+    }
+  }
+
+  return {
+    command: executablePath,
+    args
+  }
+}
+
 const resolveAppleVisionOcrBinaryPath = async ({ logger = console } = {}) => {
   const envOverride = process.env.FAMILIAR_APPLE_VISION_OCR_BINARY
   if (envOverride && (await fileExists(envOverride))) {
@@ -207,7 +221,8 @@ const runAppleVisionOcrBinary = async ({
     args.push('--no-observations')
   }
 
-  const { stdout } = await execFileAsync(binaryPath, args, {
+  const invocation = resolveExecutableInvocation({ executablePath: binaryPath, args })
+  const { stdout } = await execFileAsync(invocation.command, invocation.args, {
     maxBuffer: 1024 * 1024 * 50
   })
 
@@ -234,5 +249,6 @@ module.exports = {
   normalizeLanguages,
   normalizeMinConfidence,
   resolveAppleVisionOcrBinaryPath,
+  resolveExecutableInvocation,
   runAppleVisionOcrBinary
 }

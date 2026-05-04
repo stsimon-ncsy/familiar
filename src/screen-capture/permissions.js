@@ -34,6 +34,10 @@ function getScreenRecordingPermissionStatus() {
     return e2ePermissionStatus;
   }
 
+  if (process.platform === 'win32') {
+    return 'granted';
+  }
+
   if (process.platform !== 'darwin') {
     return 'unavailable';
   }
@@ -56,6 +60,14 @@ async function requestScreenRecordingPermission() {
       permissionStatus: e2ePermissionStatus,
       granted: e2ePermissionStatus === 'granted',
       message: e2ePermissionStatus === 'unavailable' ? 'Screen Recording permissions are not applicable on this platform.' : null
+    };
+  }
+
+  if (process.platform === 'win32') {
+    return {
+      ok: true,
+      permissionStatus: 'granted',
+      granted: true
     };
   }
 

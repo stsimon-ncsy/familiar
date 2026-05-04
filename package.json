@@ -1,13 +1,13 @@
 {
   "name": "familiar-desktopapp",
   "version": "0.0.67",
-  "description": "Familiar menu bar app shell (macOS)",
+  "description": "Familiar desktop app shell (macOS and Windows)",
   "main": "src/main.js",
   "scripts": {
     "clean": "rimraf dist",
-    "build:apple-vision-ocr": "bash scripts/build-apple-vision-ocr.sh",
-    "build:active-window-detector": "bash scripts/build-list-on-screen-apps-helper.sh",
-    "build:rg-bundle": "bash scripts/build-rg-bundle.sh",
+    "build:apple-vision-ocr": "node scripts/build-apple-vision-ocr.js",
+    "build:active-window-detector": "node scripts/build-active-window-detector.js",
+    "build:rg-bundle": "node scripts/build-rg-bundle.js",
     "prestart": "npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run react:build:dashboard",
     "pre-dist:mac": "npm run css:build && npm run react:build:dashboard",
     "dist:mac": "npm run clean && npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run css:build && electron-builder --mac --arm64 --x64",
@@ -15,6 +15,10 @@
     "dist:mac:arm64": "npm run clean && npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run css:build && electron-builder --mac --arm64",
     "pre-dist:mac:x64": "npm run css:build && npm run react:build:dashboard",
     "dist:mac:x64": "npm run clean && npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run css:build && electron-builder --mac --x64",
+    "dist:win": "npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win",
+    "dist:win:portable": "npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win portable",
+    "dist:win:nsis": "npm run clean && npm run build:rg-bundle && npm run react:build:dashboard && npm run css:build && electron-builder --win nsis",
+    "validate:win-packaged-resources": "node scripts/windows/validate-packaged-resources.js --unpacked-dir dist/win-unpacked",
     "react:build:dashboard": "esbuild src/dashboard/main.jsx --bundle --format=iife --platform=browser --target=es2020 --define:process.env.NODE_ENV='\"production\"' --outfile=src/dashboard/react-dist/dashboard-react.js",
     "react:watch:dashboard": "esbuild src/dashboard/main.jsx --bundle --format=iife --platform=browser --target=es2020 --define:process.env.NODE_ENV='\"development\"' --sourcemap --outfile=src/dashboard/react-dist/dashboard-react.js --watch",
     "css": "tailwindcss -i ./src/dashboard/input.css -o ./src/dashboard/styles.css --watch",
@@ -23,8 +27,8 @@
     "predev": "npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run react:build:dashboard",
     "dev": "npm run rebuild:electron && tailwindcss -i ./src/dashboard/input.css -o ./src/dashboard/styles.css --watch & electron .",
     "rebuild:node": "npm rebuild better-sqlite3",
-    "rebuild:electron": "npm_config_runtime=electron npm_config_target=40.0.0 npm_config_disturl=https://electronjs.org/headers npm rebuild better-sqlite3 --build-from-source",
-    "test": "npm run rebuild:node && find test -name \"*.test.js\" -not -path \"*/e2e/*\" -print0 | xargs -0 node --test",
+    "rebuild:electron": "node scripts/rebuild-for-electron.js",
+    "test": "npm run rebuild:node && node scripts/run-unit-tests.js",
     "test:unit:timed": "npm run rebuild:node && node scripts/run-unit-tests-with-timeout.js",
     "test:e2e": "npm run build:apple-vision-ocr && npm run build:active-window-detector && npm run build:rg-bundle && npm run react:build:dashboard && npm run rebuild:electron && playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -37,7 +41,9 @@
   "keywords": [
     "Electron",
     "menu bar",
+    "system tray",
     "macOS",
+    "Windows",
     "Familiar"
   ],
   "build": {
@@ -59,21 +65,21 @@
       "build/**/*",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "scripts/bin/familiar-ocr-helper",
-        "to": "familiar-ocr-helper"
-      },
-      {
-        "from": "scripts/bin/list-on-screen-apps-helper",
-        "to": "list-on-screen-apps-helper"
-      },
-      {
-        "from": "scripts/bin/rg",
-        "to": "rg"
-      }
-    ],
     "mac": {
+      "extraResources": [
+        {
+          "from": "scripts/bin/familiar-ocr-helper",
+          "to": "familiar-ocr-helper"
+        },
+        {
+          "from": "scripts/bin/list-on-screen-apps-helper",
+          "to": "list-on-screen-apps-helper"
+        },
+        {
+          "from": "scripts/bin/rg",
+          "to": "rg"
+        }
+      ],
       "target": [
         "dmg",
         "zip"
@@ -103,6 +109,38 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "build/icon.png",
+      "extraResources": [
+        {
+          "from": "scripts/windows/windows-media-ocr-probe.ps1",
+          "to": "windows/windows-media-ocr-probe.ps1"
+        },
+        {
+          "from": "scripts/windows/windows-ocr.ps1",
+          "to": "windows/windows-ocr.ps1"
+        },
+        {
+          "from": "scripts/windows/windows-foreground.ps1",
+          "to": "windows/windows-foreground.ps1"
+        },
+        {
+          "from": "scripts/bin/rg/rg.exe",
+          "to": "rg.exe"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "author": "Familiar",

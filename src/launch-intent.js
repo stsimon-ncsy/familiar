@@ -14,7 +14,7 @@ const shouldOpenSettingsOnReady = ({
         return true;
     }
 
-    if (platform !== 'darwin') {
+    if (platform !== 'darwin' && platform !== 'win32') {
         return false;
     }
 

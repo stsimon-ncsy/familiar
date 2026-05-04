@@ -76,7 +76,7 @@ test('writeMarkdownFile applies redaction before persisting markdown fixture pat
     })
 
     const persisted = await fs.readFile(outputPath, 'utf-8')
-    assert.equal(persisted, expectedMarkdown)
+    assert.equal(persisted.replace(/\r\n/g, '\n'), expectedMarkdown.replace(/\r\n/g, '\n'))
   } finally {
     if (priorRgBinary === undefined) {
       delete process.env.FAMILIAR_RG_BINARY

@@ -27,12 +27,36 @@ test('shouldOpenSettingsOnReady always opens in e2e mode', () => {
     );
 });
 
-test('shouldOpenSettingsOnReady does not auto-open on non-darwin', () => {
+test('shouldOpenSettingsOnReady does not auto-open on unsupported non-darwin platforms', () => {
     assert.equal(
         shouldOpenSettingsOnReady({
             isE2E: false,
             platform: 'linux',
             wasOpenedAtLogin: false,
+            hasOpenSettingsLaunchArg: false
+        }),
+        false
+    );
+});
+
+test('shouldOpenSettingsOnReady opens on regular Windows launch', () => {
+    assert.equal(
+        shouldOpenSettingsOnReady({
+            isE2E: false,
+            platform: 'win32',
+            wasOpenedAtLogin: false,
+            hasOpenSettingsLaunchArg: false
+        }),
+        true
+    );
+});
+
+test('shouldOpenSettingsOnReady does not auto-open on Windows login launch', () => {
+    assert.equal(
+        shouldOpenSettingsOnReady({
+            isE2E: false,
+            platform: 'win32',
+            wasOpenedAtLogin: true,
             hasOpenSettingsLaunchArg: false
         }),
         false
