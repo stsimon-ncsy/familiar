@@ -18,6 +18,19 @@
 
 We created Familiar to capture our screen (and clipboard) every 4 seconds and save it as markdown. That way our local agent can use that as context (through a cron, skill, or slash command).
 
+## Windows beta
+
+This branch includes beta Windows support in addition to the upstream macOS app. Windows builds are intended to run without admin/UAC prompts:
+
+- NSIS per-user installer: `dist\Familiar Setup 0.0.67.exe`
+- Portable executable: `dist\Familiar 0.0.67.exe`
+
+The installer artifacts are generated locally and are not committed to git. If you need to install on another machine, build from this branch on that machine or distribute the installer through a private release/file share. Do not attach private beta installers to a public fork.
+
+On Windows, Familiar stores settings in `%APPDATA%\Familiar\settings.json` and defaults the context folder parent to `%LOCALAPPDATA%`. Captured output still lives under the selected context folder in `familiar\stills\` and `familiar\stills-markdown\`.
+
+Windows OCR uses the local `Windows.Media.Ocr` APIs through bundled PowerShell helpers. Foreground-window metadata is also collected locally through a bundled Windows helper. Browser URL extraction and a Windows-specific settings UI are not part of this beta.
+
 ## Use Familiar with your favorite agent
 
 ### Self-updating
@@ -49,12 +62,13 @@ Familiar is our "bitter lesson" version: just hand over context and get out of t
 
 ## Privacy
 
-Familiar uses Apple's native OCR, deletes screenshot images after 48 hours, and redacts passwords/credit card numbers/SSNs/API tokens/etc. We'd love contributions on what else to block: https://github.com/familiar-software/familiar/tree/main/src/ or in general ways to improve privacy.
+Familiar keeps OCR and redaction local/offline. On macOS it uses Apple's native OCR helper; on Windows it uses local `Windows.Media.Ocr` helpers. Familiar deletes screenshot images after 48 hours and redacts passwords/credit card numbers/SSNs/API tokens/etc. before writing extracted markdown and clipboard mirrors. We'd love contributions on what else to block: https://github.com/familiar-software/familiar/tree/main/src/ or in general ways to improve privacy.
 
 
 ## Additional Details
 
-- Settings: `~/.familiar/settings.json`
+- Settings on macOS: `~/.familiar/settings.json`
+- Settings on Windows: `%APPDATA%\Familiar\settings.json`
 - Captured still images: `<contextFolderPath>/familiar/stills/`
 - Extracted markdown for captured still images: `<contextFolderPath>/familiar/stills-markdown/`
 - Clipboard text mirrors while recording: `<contextFolderPath>/familiar/stills-markdown/<sessionId>/<timestamp>.clipboard.txt`
@@ -72,3 +86,15 @@ npm run dist:mac
 `npm run dist:mac*` includes `npm run build:rg-bundle`, which prepares `scripts/bin/rg/*` and packages it into Electron resources at `resources/rg/`.
 
 `build-rg-bundle.sh` downloads official ripgrep binaries when missing (or copies from `FAMILIAR_RG_DARWIN_ARM64_SOURCE` / `FAMILIAR_RG_DARWIN_X64_SOURCE` if provided). The binaries are generated locally and are not committed.
+
+### Build the Windows beta locally
+
+```powershell
+git clone --branch windows-port-from-fork https://github.com/stsimon-ncsy/familiar.git
+cd familiar
+npm.cmd install
+npm.cmd run dist:win
+npm.cmd run validate:win-packaged-resources
+```
+
+`npm.cmd run dist:win` creates both the portable and NSIS per-user installer artifacts under `dist\`. The Windows package includes local OCR, foreground metadata, and `rg.exe` redaction resources.
